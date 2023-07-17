@@ -1,54 +1,84 @@
 import cv2 as cv
 import numpy as np
 
-# Ler a imagem em escala cinza
-img = cv.imread('resources/eye.bmp', 0)
 
+# Le a imagem em escala cinza
+img = cv.imread('resources/eye1.bmp', 0)
 
-# Normalização Geométrica
-
-# Normalização de Tonalidade
+# Aplica a equalização de histograma
 equalize = cv.equalizeHist(img)
-cv.imwrite('output/equalize.png', equalize)
 
-blur = cv.GaussianBlur(equalize, (7,7), 0)
+# Aplica filtro Gaussiano
+blur = cv.GaussianBlur(img,(5,5),0)
 
-# Detecção da Iris
-edges = cv.Canny(blur, 50, 5, 5)
-cv.imwrite('output/edges.png', edges)
+# Converte a imagem para RGB
+img = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
 
-kernel = np.ones([3,3])
-close = cv.morphologyEx(edges, cv.MORPH_CLOSE, kernel)
-cv.imwrite('output/close.png', close)
+# Binarização
+_, binaryPupil = cv.threshold(blur, 30, 255, cv.THRESH_BINARY_INV)
+binaryIris = cv.adaptiveThreshold(blur, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY_INV,
+21, 5)
+cv.imwrite('output/binaryPupil.png', binaryPupil)
+cv.imwrite('output/binaryIris.png', binaryIris)
 
-# Encontrar círculos 
-circles = cv.HoughCircles(edges, cv.HOUGH_GRADIENT, dp=1, minDist=1, param1=100, param2=30, minRadius=0, maxRadius=80)
+# Fechamento da Imagem
+kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(13,13))
+closingPupil = cv.morphologyEx(binaryPupil, cv.MORPH_CLOSE, kernel)
+kernel = cv.getStructuringElement(cv.MORPH_RECT,(3,3))
+closingIris = cv.morphologyEx(binaryIris, cv.MORPH_CLOSE, kernel)
+cv.imwrite('output/closingPupil.png', closingPupil)
+cv.imwrite('output/closingIris.png', closingIris)
 
-# Verificar se foram encontrados círculos
-if circles is not None:
-    # Converter as coordenadas e o raio do círculo para inteiros
-    circles = np.round(circles[0, :]).astype(int)
+# Encontrar o contorno na pupila
+contoursPupil, _ = cv.findContours(closingPupil.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
+areasPupil = [cv.arcLength(c,True) for c in contoursPupil]
+max_index = np.argmax(areasPupil)
 
-    # Selecionar o círculo com maior raio (íris)
-    idx = circles[np.argsort(circles[:, 2])]
+# Selecionar o maior dos contornos
+cntPupil = contoursPupil[max_index]
 
-    # Extrair as coordenadas e o raio da íris
-    iris = idx[-1]
-    pupil = idx[-2]
+# Encaixa uma elipse no contorno encontrado
+ellipsePupil = cv.fitEllipse(cntPupil)
+# Desenha a elipse na imagem
+result = cv.ellipse(img.copy(), ellipsePupil ,(255,255,0), 1)
+# Desenha o centro da elipse na imagem
+cv.circle(result,(int(ellipsePupil[0][0]),int(ellipsePupil[0][1])),2,(0,255,0),1)
 
-    print(iris)
-    print(pupil)
+# Cria um círculo no centro do contorno para tirar as medidas da máscara
+(x,y), radius = cv.minEnclosingCircle(cntPupil)
+Pcenter = (int(x),int(y))
+Pradius = int(radius)
 
-    # Desenhar um círculo ao redor da iris na imagem original do olho
-    cv.circle(equalize, (iris[0], iris[1]), iris[2], (0, 0, 0), 2)
+# Criando uma máscara para detectar a iris
+mask = np.zeros_like(closingIris)
+mask = cv.circle(mask, Pcenter, Pradius * 3, (255,255,255), -1)
 
-    # Desenhar um círculo ao redor da pupila na imagem original do olho
-    cv.circle(equalize, (pupil[0], pupil[1]), pupil[2], (0, 0, 0), 2)
+# Recortando a área da Iris
+irisMask = cv.bitwise_and(closingIris, mask)
+cv.imwrite('output/IrisMask.png', irisMask)
 
-    # Salvar a imagem com os círculos
-    cv.imwrite('output/circles.png', equalize)
+# # Abertura da máscara
+# kernel = cv.getStructuringElement(cv.MORPH_RECT,(5,5))
+# irisMask = cv.morphologyEx(irisMask, cv.MORPH_OPEN, kernel)
+# cv.imwrite('output/IrisMaskOpen.png', irisMask)
+
+# # Fechamento da máscara
+# kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE,(7,7))
+# irisMask = cv.morphologyEx(irisMask, cv.MORPH_CLOSE, kernel)
+# cv.imwrite('output/IrisMaskClose.png', irisMask)
+
+# Encontrar o contorno na iris
+contoursIris, _ = cv.findContours(irisMask.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
+areasIris = [cv.arcLength(c,True) for c in contoursIris]
+max_index2 = np.argmax(areasIris)
+
+# Selecionar o maior dos contornos
+cntIris = contoursIris[max_index2]
+
+# Encaixa uma elipse no contorno encontrado
+ellipseIris = cv.fitEllipse(cntIris)
+# Desenha a elipse na imagem
+result = cv.ellipse(result.copy(), ellipseIris,(255,255,0), 1)
 
 
-# Extração da Iris
-
-# Identificação da Iris
+cv.imwrite('output/Iris.png', result)
